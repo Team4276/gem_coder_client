@@ -29,7 +29,9 @@
     body { margin: 0; min-width: 320px; min-height: 100dvh; overflow: hidden; background: var(--bg); }
     button, textarea, input { font: inherit; }
     button { cursor: pointer; }
-    .app { height: 100dvh; min-height: 0; display: grid; grid-template-columns: 278px minmax(0, 1fr); }
+    .app { height: 100dvh; min-height: 0; display: grid; grid-template-columns: 278px minmax(0, 1fr); transition: grid-template-columns .28s var(--ease); }
+    .app.sidebar-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+    .app.sidebar-collapsed .sidebar { transform: translateX(-103%); }
 
     .sidebar {
       z-index: 4;
@@ -43,7 +45,11 @@
       background: #242521;
       transition: transform .28s var(--ease);
     }
+    .sidebar-scrim { position: fixed; z-index: 3; inset: 0; border: 0; padding: 0; background: rgba(22,23,20,.34); opacity: 0; pointer-events: none; transition: opacity .28s var(--ease); }
+    .sidebar.open + .sidebar-scrim { opacity: 1; pointer-events: auto; }
     .brand { display: flex; align-items: center; gap: 10px; padding: 5px 7px; font-weight: 720; letter-spacing: -.03em; }
+    .sidebar-close { display: inline-grid; margin-left: auto; width: 32px; height: 32px; border: 0; border-radius: 9px; place-items: center; color: #e9ebe5; background: transparent; font-size: 22px; line-height: 1; }
+    .sidebar-close:hover { color: white; background: rgba(255,255,255,.12); }
     .brand-mark { width: 29px; height: 29px; border-radius: 9px; display: grid; place-items: center; color: #15362e; background: #b7e1d3; font-weight: 850; }
     .new-chat { border: 1px solid rgba(255,255,255,.14); color: white; background: rgba(255,255,255,.075); min-height: 45px; border-radius: 13px; padding: 0 13px; text-align: left; display: flex; align-items: center; justify-content: space-between; transition: background .2s, transform .2s; }
     .new-chat:hover { background: rgba(255,255,255,.13); }
@@ -103,7 +109,8 @@
     .thinking i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite alternate; }
     .thinking i:nth-child(2) { animation-delay: .16s; }.thinking i:nth-child(3) { animation-delay: .32s; }
 
-    .composer-wrap { position: fixed; z-index: 2; left: 278px; right: 0; bottom: 0; padding: 28px 26px 20px; pointer-events: none; background: linear-gradient(transparent, var(--bg) 35%); }
+    .composer-wrap { position: fixed; z-index: 2; left: 278px; right: 0; bottom: 0; padding: 28px 26px 20px; pointer-events: none; background: linear-gradient(transparent, var(--bg) 35%); transition: left .28s var(--ease); }
+    .app.sidebar-collapsed .composer-wrap { left: 0; }
     .composer-area { position: relative; width: min(848px, 100%); margin: 0 auto; pointer-events: auto; }
     .composer { position: relative; border: 1px solid #deded8; border-radius: 20px; padding: 12px 12px 10px 16px; background: var(--panel-solid); box-shadow: 0 13px 35px rgba(37, 43, 38, .10), 0 1px 2px rgba(37,43,38,.08); transition: border-color .2s, box-shadow .2s; }
     .composer:focus-within { border-color: #90c8b8; box-shadow: 0 14px 40px rgba(23, 88, 68, .12), 0 0 0 3px rgba(117, 194, 170, .13); }
@@ -139,13 +146,13 @@
     .history, .conversation { scrollbar-width: thin; scrollbar-color: #bec6c0 transparent; }.history::-webkit-scrollbar, .conversation::-webkit-scrollbar { width: 10px; }.history::-webkit-scrollbar-thumb, .conversation::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 10px; background-clip: padding-box; background-color: #bcc4bd; }.history::-webkit-scrollbar-thumb { background-color: #768078; }
     @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } } @keyframes fade { from { opacity: 0; } to { opacity: 1; } } @keyframes pulse { to { opacity: .23; transform: scale(.72); } }
     @media (max-width: 720px) { .app { display: block; }.main { height: 100dvh; }.sidebar { position: fixed; inset: 0 auto 0 0; width: min(82vw, 310px); transform: translateX(-103%); box-shadow: 18px 0 45px rgba(0,0,0,.2); }.sidebar.open { transform: translateX(0); }.topbar { height: 62px; display: flex; align-items: center; padding: 0 15px; gap: 8px; }.topbar-title { min-width: 0; gap: 6px; }.mobile-menu { display: inline-grid; }.conversation { height: calc(100dvh - 62px); padding: 15px 16px 151px; }.composer-wrap { left: 0; padding: 22px 15px 13px; }.welcome { margin-top: 11dvh; margin-bottom: auto; }.welcome .spark { margin-bottom: 15px; }.composer-hint { display: none; }.message-actions, .delete-chat { opacity: 1; }.modal { padding: 18px; border-radius: 17px; } }
-    @media (min-width: 721px) { .sidebar-scrim { display: none; } }
+    @media (min-width: 721px) { .sidebar-scrim { display: none; }.app.sidebar-collapsed .topbar { position: fixed; z-index: 3; top: 0; left: 0; display: flex; height: 62px; align-items: center; padding: 0 15px; }.app.sidebar-collapsed .mobile-menu { display: inline-grid; } }
   </style>
 </head>
 <body>
   <div class="app">
     <aside class="sidebar" id="sidebar" aria-label="Conversations">
-      <div class="brand"><span class="brand-mark">G</span><span>Gem Coder</span></div>
+      <div class="brand"><span class="brand-mark">G</span><span>Gem Coder</span><button class="sidebar-close" id="closeSidebar" type="button" aria-label="Close conversations">×</button></div>
       <button class="new-chat" id="newChat" type="button"><span>＋ New chat</span><kbd>Ctrl K</kbd></button>
       <button class="workspace-card no-project" id="workspaceButton" type="button"><span class="workspace-icon" id="workspaceIcon">!</span><span><strong id="workspaceTitle">Connect a project</strong><small id="workspaceStatus">No project selected</small></span></button>
       <div class="history-heading"><span class="history-label">Your chats</span><button class="clear-history" id="clearHistory" type="button" hidden>Clear all</button></div>
@@ -156,9 +163,10 @@
         <div class="connection"><span class="dot" id="statusDot"></span><span id="statusText">Not checked</span></div>
       </div>
     </aside>
+    <button class="sidebar-scrim" id="sidebarScrim" type="button" aria-label="Close conversations" tabindex="-1"></button>
     <main class="main">
       <header class="topbar">
-        <div class="topbar-title"><button class="icon-button mobile-menu" id="menuButton" aria-label="Open conversations" type="button">☰</button></div>
+        <div class="topbar-title"><button class="icon-button mobile-menu" id="menuButton" aria-label="Open conversations" aria-controls="sidebar" aria-expanded="false" type="button">☰</button></div>
 
       </header>
       <section class="conversation" aria-live="polite">
@@ -398,16 +406,19 @@
       async function installSkill() { var path = $('#skillPath').value.trim(); var result = $('#skillResult'); if (!path) { result.textContent = 'Choose a SKILL.md file first.'; result.className = 'test-result failure'; return; } var button = $('#installSkill'); button.disabled = true; result.textContent = 'Installing…'; result.className = 'test-result'; try { var payload = await companionRequest('/skills/install', { path: path }); result.textContent = payload.skill.name + ' installed.'; result.classList.add('success'); $('#skillPath').value = ''; await refreshWorkspace(); await renderSkills(); } catch (error) { result.textContent = error.message; result.classList.add('failure'); } finally { button.disabled = false; } }
       async function removeInstalledSkill(skill) { if (!window.confirm('Remove the installed skill "' + skill.name + '"? The original skill files will not be changed.')) return; var result = $('#skillResult'); result.textContent = 'Removing…'; result.className = 'test-result'; try { await companionRequest('/skills/remove', { name: skill.name }); result.textContent = skill.name + ' removed.'; result.classList.add('success'); await refreshWorkspace(); await renderSkills(); } catch (error) { result.textContent = error.message; result.classList.add('failure'); } }
       async function testConnection() { var values = readSettingsForm(); var result = $('#testResult'); result.className = 'test-result'; if (!values.baseUrl) { result.textContent = 'Enter a valid IP address, such as 192.168.1.180.'; result.classList.add('failure'); return; } result.textContent = 'Checking server…'; try { var response = await fetch(values.baseUrl + '/models', { headers: values.apiKey.trim() ? { Authorization: 'Bearer ' + values.apiKey.trim() } : {} }); if (!response.ok) throw new Error('HTTP ' + response.status); var data = await response.json(); var found = (data.data || []).some(function (model) { return model.id === values.model; }); result.textContent = found ? 'Connected — ' + values.model + ' is available.' : 'Connected, but ' + values.model + ' was not listed.'; result.classList.add(found ? 'success' : 'failure'); setStatus(found ? 'online' : 'error', found ? 'Connected' : 'Model not found'); } catch (error) { result.textContent = 'Could not connect: ' + error.message + '. Check the IP address, Wi-Fi, firewall, and CORS.'; result.classList.add('failure'); setStatus('error', 'Connection failed'); } }
-      function closeSidebar() { $('#sidebar').classList.remove('open'); }
+      function setSidebarOpen(open) { $('.app').classList.toggle('sidebar-collapsed', !open); $('#sidebar').classList.toggle('open', open); $('#menuButton').setAttribute('aria-expanded', String(open)); }
+      function closeSidebar() { setSidebarOpen(false); }
 
-      $('#newChat').addEventListener('click', newChat); $('#clearHistory').addEventListener('click', clearChatHistory); $('#menuButton').addEventListener('click', function () { $('#sidebar').classList.add('open'); }); $('#skillsButton').addEventListener('click', showSkills); $('#settingsButton').addEventListener('click', showSettings); $('#workspaceButton').addEventListener('click', showWorkspaceConnect); $('#projectState').addEventListener('click', showWorkspaceConnect); $('#closeSkills').addEventListener('click', hideSkills); $('#skillsModal').addEventListener('click', function (event) { if (event.target === this) hideSkills(); }); $('#closeSettings').addEventListener('click', hideSettings); $('#settingsModal').addEventListener('click', function (event) { if (event.target === this) hideSettings(); }); $('#closeWorkspace').addEventListener('click', hideWorkspaceConnect); $('#workspaceModal').addEventListener('click', function (event) { if (event.target === this) hideWorkspaceConnect(); });
+      $('#newChat').addEventListener('click', newChat); $('#clearHistory').addEventListener('click', clearChatHistory); $('#menuButton').addEventListener('click', function () { setSidebarOpen(!$('#sidebar').classList.contains('open')); }); $('#closeSidebar').addEventListener('click', closeSidebar); $('#sidebarScrim').addEventListener('click', closeSidebar); $('#skillsButton').addEventListener('click', showSkills); $('#settingsButton').addEventListener('click', showSettings); $('#workspaceButton').addEventListener('click', showWorkspaceConnect); $('#projectState').addEventListener('click', showWorkspaceConnect); $('#closeSkills').addEventListener('click', hideSkills); $('#skillsModal').addEventListener('click', function (event) { if (event.target === this) hideSkills(); }); $('#closeSettings').addEventListener('click', hideSettings); $('#settingsModal').addEventListener('click', function (event) { if (event.target === this) hideSettings(); }); $('#closeWorkspace').addEventListener('click', hideWorkspaceConnect); $('#workspaceModal').addEventListener('click', function (event) { if (event.target === this) hideWorkspaceConnect(); });
       $('#saveSettings').addEventListener('click', function () { var values = readSettingsForm(); if (!values.baseUrl) { showToast('Enter a valid DGX Spark IP address'); return; } if (!values.model) { showToast('Model name is required'); return; } config = values; saveConfig(); refreshWorkspace(); hideSettings(); showToast('Connection settings saved'); }); $('#testConnection').addEventListener('click', testConnection);
       $('#chooseWorkspace').addEventListener('click', chooseWorkspaceFolder); $('#saveWorkspace').addEventListener('click', async function () { var values = readWorkspaceForm(); if (!values.path) { showToast('Choose a project folder first'); return; } try { var workspace = await companionRequest('/connect', values); hideWorkspaceConnect(); await refreshWorkspace(); showToast('Connected to ' + workspace.workspace); } catch (error) { showToast(error.message); } });
       $('#chooseSkill').addEventListener('click', chooseSkillFile); $('#installSkill').addEventListener('click', installSkill);
       promptEl.addEventListener('input', function () { autoResize(); updateSend(); updateSkillAutocomplete(); }); promptEl.addEventListener('click', updateSkillAutocomplete); promptEl.addEventListener('keydown', function (event) { if (!skillAutocompleteEl.hidden) { if (event.key === 'ArrowDown') { event.preventDefault(); moveSkillAutocomplete(1); return; } if (event.key === 'ArrowUp') { event.preventDefault(); moveSkillAutocomplete(-1); return; } if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) { event.preventDefault(); selectSkillAutocomplete(skillAutocompleteIndex); return; } if (event.key === 'Escape') { event.preventDefault(); hideSkillAutocomplete(); return; } } if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(promptEl.value.trim()); } }); sendButton.addEventListener('click', function () { if (isSending) stopGeneration(); else sendMessage(promptEl.value.trim()); });
       document.addEventListener('mousedown', function (event) { if (!skillAutocompleteEl.contains(event.target) && event.target !== promptEl) hideSkillAutocomplete(); });
       document.addEventListener('keydown', function (event) { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); newChat(); } if (event.key === 'Escape') { hideSkills(); hideSettings(); hideWorkspaceConnect(); closeSidebar(); } });
-      renderHistory(); renderChat(); autoResize(); updateSend(); refreshWorkspace();
+      var mobileLayout = window.matchMedia('(max-width: 720px)');
+      mobileLayout.addEventListener('change', function (event) { setSidebarOpen(!event.matches); });
+      setSidebarOpen(!mobileLayout.matches); renderHistory(); renderChat(); autoResize(); updateSend(); refreshWorkspace();
     }());
   </script>
 </body>

@@ -74,6 +74,26 @@ test('connection settings ask for only the DGX Spark IP address', async () => {
   assert.doesNotMatch(page, /id="baseUrl"/);
 });
 
+test('the mobile conversation sidebar can be closed after it is opened', async () => {
+  const page = await fs.readFile(path.join(repositoryRoot, 'index.html'), 'utf8');
+  assert.match(page, /id="closeSidebar"[^>]*aria-label="Close conversations"/);
+  assert.match(page, /id="sidebarScrim"[^>]*aria-label="Close conversations"/);
+  assert.match(page, /function setSidebarOpen\(open\)/);
+  assert.match(page, /setSidebarOpen\(!\$\('#sidebar'\)\.classList\.contains\('open'\)\)/);
+  assert.match(page, /\$\('#closeSidebar'\)\.addEventListener\('click', closeSidebar\)/);
+  assert.match(page, /\$\('#sidebarScrim'\)\.addEventListener\('click', closeSidebar\)/);
+  assert.match(page, /setAttribute\('aria-expanded', String\(open\)\)/);
+});
+
+test('the desktop conversation sidebar has collapse and reopen controls', async () => {
+  const page = await fs.readFile(path.join(repositoryRoot, 'index.html'), 'utf8');
+  assert.match(page, /\.app\.sidebar-collapsed \{ grid-template-columns: 0 minmax\(0, 1fr\); \}/);
+  assert.match(page, /\.app\.sidebar-collapsed \.mobile-menu \{ display: inline-grid; \}/);
+  assert.match(page, /\.app\.sidebar-collapsed \.composer-wrap \{ left: 0; \}/);
+  assert.match(page, /classList\.toggle\('sidebar-collapsed', !open\)/);
+  assert.match(page, /setSidebarOpen\(!mobileLayout\.matches\)/);
+});
+
 async function waitForServer(url, child, output) {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (child.exitCode !== null) throw new Error('Companion exited before startup:\n' + output.join(''));
