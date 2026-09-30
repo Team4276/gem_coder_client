@@ -256,6 +256,53 @@
       function serverIpFromBaseUrl(value) { try { return normalizeServerIp(new URL(value).hostname); } catch { return ''; } }
 
       function setStatus(state, text) { var dot = $('#statusDot'); dot.className = 'dot' + (state ? ' ' + state : ''); $('#statusText').textContent = text; }
+      // Health checks have their own timeout and never replay chat or tool requests.
+      var connectionTimer;
+      var connectionCheck = null;
+      var reconnectDelay = 1000;
+      async function healthRequest(url, headers) {
+        var controller = new AbortController();
+        var timeout = setTimeout(function () { controller.abort(); }, 5000);
+        try {
+          var response = await fetch(url, { headers: headers, signal: controller.signal, cache: 'no-store' });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return await response.json();
+        } finally { clearTimeout(timeout); }
+      }
+      function reconnect() {
+        clearTimeout(connectionTimer);
+        if (connectionCheck) connectionCheck.cancelled = true;
+        connectionCheck = null;
+        reconnectDelay = 1000;
+        checkConnections();
+      }
+      async function checkConnections() {
+        if (connectionCheck) return;
+        var check = { cancelled: false };
+        connectionCheck = check;
+        var values = Object.assign({}, config);
+        var results = await Promise.allSettled([
+          healthRequest(normalizeUrl(values.baseUrl) + '/models', values.apiKey.trim() ? { Authorization: 'Bearer ' + values.apiKey.trim() } : {}),
+          refreshWorkspace()
+        ]);
+        if (check.cancelled) return;
+        var server = results[0];
+        var connected = server.status === 'fulfilled';
+        if (connected) {
+          var found = (server.value.data || []).some(function (model) { return model.id === values.model.trim(); });
+          setStatus(found ? 'online' : 'error', found ? 'Connected' : 'Model not found');
+        } else {
+          setStatus('error', navigator.onLine === false ? 'Offline — reconnecting…' : 'Reconnecting…');
+        }
+        var healthy = connected && Boolean(workspaceInfo);
+        var delay = healthy ? 30000 : reconnectDelay;
+        reconnectDelay = healthy ? 1000 : Math.min(reconnectDelay * 2, 30000);
+        connectionCheck = null;
+        connectionTimer = setTimeout(checkConnections, delay);
+      }
+      window.addEventListener('online', reconnect);
+      window.addEventListener('offline', function () { setStatus('error', 'Offline — reconnecting…'); reconnect(); });
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) reconnect(); });
       function autoResize() { promptEl.style.height = 'auto'; promptEl.style.height = Math.min(promptEl.scrollHeight, 190) + 'px'; }
       function skillTokenAtCursor() { var cursor = promptEl.selectionStart; var before = promptEl.value.slice(0, cursor); var match = before.match(/(^|\s)\$([a-z0-9-]*)$/i); return match ? { start: cursor - match[2].length - 1, end: cursor, query: match[2].toLowerCase() } : null; }
       function hideSkillAutocomplete() { skillAutocompleteEl.hidden = true; skillAutocompleteEl.innerHTML = ''; skillAutocompleteMatches = []; skillAutocompleteIndex = 0; skillAutocompleteQuery = ''; promptEl.setAttribute('aria-expanded', 'false'); promptEl.removeAttribute('aria-activedescendant'); }
@@ -303,7 +350,8 @@
       function companionHeaders() { return { 'Content-Type': 'application/json', 'X-Gem-Coder-Token': config.companionToken.trim() }; }
       function updateWorkspaceUI() { var card = $('#workspaceButton'); var icon = $('#workspaceIcon'); var title = $('#workspaceTitle'); var status = $('#workspaceStatus'); var projectState = $('#projectState'); var connected = Boolean(workspaceInfo && workspaceInfo.workspace); card.classList.toggle('no-project', !connected); projectState.classList.toggle('connected', connected); projectState.classList.toggle('unavailable', !workspaceInfo); if (connected) { icon.textContent = 'P'; title.textContent = workspaceInfo.workspace; status.textContent = workspaceInfo.wpilibDocs ? 'Connected · WPILib docs ready' : 'Connected · local tools ready'; projectState.textContent = 'Project: ' + workspaceInfo.workspace; } else if (workspaceInfo) { icon.textContent = '!'; title.textContent = 'Connect a project'; status.textContent = 'No project selected'; projectState.textContent = 'No project selected — connect one'; } else { icon.textContent = '!'; title.textContent = 'Project unavailable'; status.textContent = 'Companion not reachable'; projectState.textContent = 'Project status unavailable — reconnect'; } }
       async function companionRequest(endpoint, body) { var response = await fetch(normalizeUrl(config.companionUrl) + endpoint, { method: body ? 'POST' : 'GET', headers: companionHeaders(), signal: activeController ? activeController.signal : undefined, body: body ? JSON.stringify(body) : undefined }); var payload = await response.json().catch(function () { return {}; }); if (!response.ok) throw new Error(payload.error || 'Workspace companion returned ' + response.status); return payload; }
-      async function refreshWorkspace() { try { workspaceInfo = await companionRequest('/health'); } catch { workspaceInfo = null; } updateWorkspaceUI(); updateSkillAutocomplete(); return workspaceInfo; }
+      var workspaceRefresh = 0;
+      async function refreshWorkspace() { var version = ++workspaceRefresh; var info = null; try { info = await healthRequest(normalizeUrl(config.companionUrl) + '/health', companionHeaders()); } catch {} if (version !== workspaceRefresh) return workspaceInfo; workspaceInfo = info; updateWorkspaceUI(); updateSkillAutocomplete(); return workspaceInfo; }
       async function workspaceTool(name, input) { return (await companionRequest('/tool', { name: name, input: input || {} })).result; }
       function diffPreview(before, after) {
         var oldLines = before === null ? [] : String(before).replace(/\r/g, '').split('\n'); var newLines = String(after).replace(/\r/g, '').split('\n');
@@ -393,7 +441,7 @@
         try { if (workspaceInfo) await runWorkspaceAgent(chat, assistant, thinking); else await streamResponse(chat, assistant, thinking); if (!assistant.content) assistant.content = 'The server returned an empty response.'; }
         catch (error) {
           if (error.name === 'AbortError') { if (!assistant.content) assistant.content = 'Generation stopped.'; showToast('Generation stopped'); }
-          else { assistant.content = 'Connection error: ' + error.message + '\n\nThe DGX Spark address may have changed. Update the server address, then try again.'; setStatus('error', 'Connection failed'); addServerUpdateAction(thinking); }
+          else { assistant.content = (assistant.content ? assistant.content + '\n\n' : '') + 'Connection error: ' + error.message + '\n\nReconnecting automatically. Once connected, send your request again. If the server address changed, update it in Settings.'; setStatus('error', 'Reconnecting…'); reconnect(); addServerUpdateAction(thinking); }
         }
         finally { renderMessageContent(thinking.querySelector('.message-body'), assistant.content); scrollToLatestAnswer(thinking); chat.updatedAt = Date.now(); saveChats(); renderHistory(); activeController = null; isSending = false; updateSend(); }
       }
@@ -420,7 +468,7 @@
       function closeSidebar() { setSidebarOpen(false); }
 
       $('#newChat').addEventListener('click', newChat); $('#clearHistory').addEventListener('click', clearChatHistory); $('#menuButton').addEventListener('click', function () { setSidebarOpen(!$('#sidebar').classList.contains('open')); }); $('#closeSidebar').addEventListener('click', closeSidebar); $('#sidebarScrim').addEventListener('click', closeSidebar); $('#skillsButton').addEventListener('click', showSkills); $('#settingsButton').addEventListener('click', showSettings); $('#workspaceButton').addEventListener('click', showWorkspaceConnect); $('#projectState').addEventListener('click', showWorkspaceConnect); $('#closeSkills').addEventListener('click', hideSkills); $('#skillsModal').addEventListener('click', function (event) { if (event.target === this) hideSkills(); }); $('#closeSettings').addEventListener('click', hideSettings); $('#settingsModal').addEventListener('click', function (event) { if (event.target === this) hideSettings(); }); $('#closeWorkspace').addEventListener('click', hideWorkspaceConnect); $('#workspaceModal').addEventListener('click', function (event) { if (event.target === this) hideWorkspaceConnect(); });
-      $('#saveSettings').addEventListener('click', function () { var values = readSettingsForm(); if (!values.baseUrl) { showToast('Enter a valid DGX Spark IP address'); return; } if (!values.model) { showToast('Model name is required'); return; } config = values; saveConfig(); refreshWorkspace(); hideSettings(); showToast('Connection settings saved'); }); $('#testConnection').addEventListener('click', testConnection);
+      $('#saveSettings').addEventListener('click', function () { var values = readSettingsForm(); if (!values.baseUrl) { showToast('Enter a valid DGX Spark IP address'); return; } if (!values.model) { showToast('Model name is required'); return; } config = values; saveConfig(); reconnect(); hideSettings(); showToast('Connection settings saved'); }); $('#testConnection').addEventListener('click', testConnection);
       $('#chooseWorkspace').addEventListener('click', chooseWorkspaceFolder); $('#saveWorkspace').addEventListener('click', async function () { var values = readWorkspaceForm(); if (!values.path) { showToast('Choose a project folder first'); return; } try { var workspace = await companionRequest('/connect', values); hideWorkspaceConnect(); await refreshWorkspace(); showToast('Connected to ' + workspace.workspace); } catch (error) { showToast(error.message); } });
       $('#chooseSkill').addEventListener('click', chooseSkillFile); $('#installSkill').addEventListener('click', installSkill);
       promptEl.addEventListener('input', function () { autoResize(); updateSend(); updateSkillAutocomplete(); }); promptEl.addEventListener('click', updateSkillAutocomplete); promptEl.addEventListener('keydown', function (event) { if (!skillAutocompleteEl.hidden) { if (event.key === 'ArrowDown') { event.preventDefault(); moveSkillAutocomplete(1); return; } if (event.key === 'ArrowUp') { event.preventDefault(); moveSkillAutocomplete(-1); return; } if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) { event.preventDefault(); selectSkillAutocomplete(skillAutocompleteIndex); return; } if (event.key === 'Escape') { event.preventDefault(); hideSkillAutocomplete(); return; } } if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(promptEl.value.trim()); } }); sendButton.addEventListener('click', function () { if (isSending) stopGeneration(); else sendMessage(promptEl.value.trim()); });
@@ -428,7 +476,7 @@
       document.addEventListener('keydown', function (event) { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); newChat(); } if (event.key === 'Escape') { hideSkills(); hideSettings(); hideWorkspaceConnect(); closeSidebar(); } });
       var mobileLayout = window.matchMedia('(max-width: 720px)');
       mobileLayout.addEventListener('change', function (event) { setSidebarOpen(!event.matches); });
-      setSidebarOpen(!mobileLayout.matches); renderHistory(); renderChat(); autoResize(); updateSend(); refreshWorkspace();
+      setSidebarOpen(!mobileLayout.matches); renderHistory(); renderChat(); autoResize(); updateSend(); reconnect();
     }());
   </script>
 </body>
