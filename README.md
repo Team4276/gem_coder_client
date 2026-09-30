@@ -116,9 +116,10 @@ sh "Start Gem Coder.sh"
 Keep the terminal open while using Gem Coder; press Ctrl+C to stop it. The
 launcher checks for Node.js 18 or newer and opens the app in your browser.
 If the browser does not open automatically, open `http://127.0.0.1:8787`.
-Windows has a native modern
-folder picker; on other platforms, enter the project folder path in the
-connection dialog. The same applies to the skill-folder picker.
+Linux supports browsing for project folders and skill files through Zenity or
+KDialog in a desktop session. Install either with your package manager if
+needed (for example, `sudo apt install zenity` on Ubuntu). You can also paste
+the path into the connection dialog. On macOS, enter the path manually.
 
 ## Verify a development checkout
 
@@ -132,7 +133,7 @@ node --test companion.test.mjs
 
 Distribute the complete Gem Coder folder, including `Start Gem Coder.cmd`,
 `Start Gem Coder.sh`,
-`companion.mjs`, `pick-folder.ps1`, and `index.html`. The default browser app
+`companion.mjs`, `linux-picker.mjs`, `pick-folder.ps1`, and `index.html`. The default browser app
 configuration is:
 
 ```text

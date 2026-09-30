@@ -6,6 +6,48 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chooseLinuxPath } from './linux-picker.mjs';
+
+test('Linux picker preserves paths with spaces and passes titles as arguments', async () => {
+  const selected = await chooseLinuxPath('Choose project', false, (command, args, options, done) => {
+    assert.equal(command, 'zenity');
+    assert.ok(args.includes('--directory'));
+    assert.ok(args.includes('--title=Choose project'));
+    done(null, '/home/student/My Robot \n');
+  });
+  assert.equal(selected, '/home/student/My Robot ');
+});
+
+test('Linux skill picker falls back to KDialog when Zenity is missing', async () => {
+  const calls = [];
+  const selected = await chooseLinuxPath('Choose skill', true, (command, args, options, done) => {
+    calls.push(command);
+    if (command === 'zenity') return done({ code: 'ENOENT' });
+    assert.ok(args.includes('--getopenfilename'));
+    assert.ok(args.includes('SKILL.md'));
+    done(null, '/home/student/skill/SKILL.md\n');
+  });
+  assert.deepEqual(calls, ['zenity', 'kdialog']);
+  assert.equal(selected, '/home/student/skill/SKILL.md');
+});
+
+test('Linux picker cancellation does not launch another dialog', async () => {
+  let calls = 0;
+  assert.equal(await chooseLinuxPath('Choose project', false, (command, args, options, done) => {
+    calls += 1;
+    done({ code: 1 });
+  }), '');
+  assert.equal(calls, 1);
+});
+
+test('Linux picker explains missing tools and desktop failures', async () => {
+  await assert.rejects(chooseLinuxPath('Choose project', false, (command, args, options, done) => {
+    done({ code: 'ENOENT' });
+  }), /requires Zenity or KDialog/);
+  await assert.rejects(chooseLinuxPath('Choose project', false, (command, args, options, done) => {
+    done({ code: 2 });
+  }), /Linux desktop session/);
+});
 
 const repositoryRoot = path.dirname(fileURLToPath(import.meta.url));
 

@@ -341,10 +341,20 @@
         article.querySelector('.message-action').addEventListener('click', function () { navigator.clipboard.writeText(message.content).then(function () { showToast('Copied to clipboard'); }); });
         messagesEl.appendChild(article); return article;
       }
+      var answerScrollFrame = null;
+      function scrollToLatestAnswer(node) {
+        if (node && !messagesEl.contains(node)) return;
+        if (answerScrollFrame !== null) cancelAnimationFrame(answerScrollFrame);
+        answerScrollFrame = requestAnimationFrame(function () {
+          answerScrollFrame = null;
+          if (node && !messagesEl.contains(node)) return;
+          conversationEl.scrollTo({ top: conversationEl.scrollHeight, behavior: 'instant' });
+        });
+      }
       function renderChat() {
         messagesEl.innerHTML = ''; var chat = activeChat();
         if (!chat || !chat.messages.length) { welcomeEl.hidden = false; return; }
-        welcomeEl.hidden = true; chat.messages.forEach(addMessageElement); requestAnimationFrame(function () { conversationEl.scrollTo({ top: conversationEl.scrollHeight, behavior: 'smooth' }); });
+        welcomeEl.hidden = true; chat.messages.forEach(addMessageElement); scrollToLatestAnswer(messagesEl.lastElementChild);
       }
       function newChat() { activeId = null; renderHistory(); renderChat(); conversationEl.scrollTo({ top: 0, behavior: 'smooth' }); promptEl.focus(); closeSidebar(); }
       function openChat(id) { activeId = id; renderHistory(); renderChat(); closeSidebar(); }
@@ -373,19 +383,19 @@
           var lines = buffer.split('\n'); buffer = lines.pop();
           lines.forEach(function (line) {
             if (!line.startsWith('data:')) return; var data = line.slice(5).trim(); if (!data || data === '[DONE]') return;
-            try { var packet = JSON.parse(data); var delta = packet.choices && packet.choices[0] && packet.choices[0].delta; var content = delta && delta.content; if (content) { assistant.content += content; renderMessageContent(node.querySelector('.message-body'), assistant.content); conversationEl.scrollTo({ top: conversationEl.scrollHeight, behavior: 'smooth' }); } } catch (error) { console.debug('Skipped stream packet', error); }
+            try { var packet = JSON.parse(data); var delta = packet.choices && packet.choices[0] && packet.choices[0].delta; var content = delta && delta.content; if (content) { assistant.content += content; renderMessageContent(node.querySelector('.message-body'), assistant.content); scrollToLatestAnswer(node); } } catch (error) { console.debug('Skipped stream packet', error); }
           });
         }
       }
       async function sendMessage(text) {
         if (!text || isSending) return; var skillError = validateSkillReferences(text); if (skillError) { showToast(skillError); return; } hideSkillAutocomplete(); var chat = ensureChat(text); var user = { role: 'user', content: text }; chat.messages.push(user); chat.updatedAt = Date.now(); saveChats(); welcomeEl.hidden = true; addMessageElement(user); promptEl.value = ''; autoResize(); sendButton.disabled = true; sendButton.classList.remove('ready'); isSending = true;
-        updateSend(); var thinking = createThinking(); var assistant = { role: 'assistant', content: '' }; chat.messages.push(assistant);
+        updateSend(); var thinking = createThinking(); scrollToLatestAnswer(thinking); var assistant = { role: 'assistant', content: '' }; chat.messages.push(assistant);
         try { if (workspaceInfo) await runWorkspaceAgent(chat, assistant, thinking); else await streamResponse(chat, assistant, thinking); if (!assistant.content) assistant.content = 'The server returned an empty response.'; }
         catch (error) {
           if (error.name === 'AbortError') { if (!assistant.content) assistant.content = 'Generation stopped.'; showToast('Generation stopped'); }
           else { assistant.content = 'Connection error: ' + error.message + '\n\nThe DGX Spark address may have changed. Update the server address, then try again.'; setStatus('error', 'Connection failed'); addServerUpdateAction(thinking); }
         }
-        finally { renderMessageContent(thinking.querySelector('.message-body'), assistant.content); chat.updatedAt = Date.now(); saveChats(); renderHistory(); activeController = null; isSending = false; updateSend(); }
+        finally { renderMessageContent(thinking.querySelector('.message-body'), assistant.content); scrollToLatestAnswer(thinking); chat.updatedAt = Date.now(); saveChats(); renderHistory(); activeController = null; isSending = false; updateSend(); }
       }
       function updateSend() {
         if (isSending) { sendButton.disabled = false; sendButton.classList.remove('ready'); sendButton.classList.add('stop'); sendButton.textContent = '■'; sendButton.setAttribute('aria-label', 'Stop generating'); sendButton.title = 'Stop generating'; return; }

@@ -11,6 +11,7 @@ import { spawn, execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chooseLinuxPath } from './linux-picker.mjs';
 
 const args = process.argv.slice(2);
 function option(name, fallback = undefined) {
@@ -78,7 +79,8 @@ function requireWorkspace() {
   if (!workspaceRoot) throw new Error('Choose a project folder before using local tools.');
   return workspaceRoot;
 }
-function chooseFolderOnWindows(title = 'Choose your project folder', okLabel = 'Choose folder', pickFile = false, fileName = '') {
+function chooseFolder(title = 'Choose your project folder', okLabel = 'Choose folder', pickFile = false, fileName = '') {
+  if (process.platform === 'linux') return chooseLinuxPath(title, pickFile);
   if (process.platform !== 'win32') throw new Error('Enter the folder path on this computer.');
   return new Promise((resolve, reject) => {
     const pickerArgs = ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', folderPickerScript, '-Title', title, '-OkLabel', okLabel];
@@ -380,13 +382,13 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (serveApp && request.method === 'POST' && request.url === '/choose-folder') {
-      const selectedPath = await chooseFolderOnWindows();
+      const selectedPath = await chooseFolder();
       if (!selectedPath) throw new Error('No folder was selected.');
       json(response, 200, { path: selectedPath }, origin);
       return;
     }
     if (serveApp && request.method === 'POST' && request.url === '/choose-skill-file') {
-      const selectedPath = await chooseFolderOnWindows('Choose a SKILL.md file', 'Choose skill', true, 'SKILL.md');
+      const selectedPath = await chooseFolder('Choose a SKILL.md file', 'Choose skill', true, 'SKILL.md');
       if (!selectedPath) throw new Error('No skill file was selected.');
       json(response, 200, { path: selectedPath }, origin);
       return;
