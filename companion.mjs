@@ -422,4 +422,11 @@ server.listen(port, '127.0.0.1', () => {
   if (!serveApp) console.log('Token:     ' + token);
   if (wpilibDocsRoot) console.log('WPILib docs: ' + wpilibDocsRoot);
   if (openBrowser && process.platform === 'win32') spawn('cmd.exe', ['/c', 'start', '', appOrigin], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  if (openBrowser && process.platform !== 'win32') {
+    const browser = spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [appOrigin], { detached: true, stdio: 'ignore' });
+    const manualOpen = () => console.log('Open ' + appOrigin + ' in your browser.');
+    browser.on('error', manualOpen);
+    browser.on('exit', code => { if (code !== 0) manualOpen(); });
+    browser.unref();
+  }
 });

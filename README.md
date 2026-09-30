@@ -107,14 +107,16 @@ node companion.mjs --serve-app --skills-dir /path/to/skills
 
 ### Linux and macOS
 
-The Windows launcher is a `.cmd` file. On Linux or macOS, open a terminal in
-the Gem Coder folder and run:
+On Linux or macOS, open a terminal in the Gem Coder folder and run:
 
 ```bash
-node companion.mjs --serve-app
+sh "Start Gem Coder.sh"
 ```
 
-Then open `http://127.0.0.1:8787` in a browser. Windows has a native modern
+Keep the terminal open while using Gem Coder; press Ctrl+C to stop it. The
+launcher checks for Node.js 18 or newer and opens the app in your browser.
+If the browser does not open automatically, open `http://127.0.0.1:8787`.
+Windows has a native modern
 folder picker; on other platforms, enter the project folder path in the
 connection dialog. The same applies to the skill-folder picker.
 
@@ -129,6 +131,7 @@ node --test companion.test.mjs
 ## Instructor setup
 
 Distribute the complete Gem Coder folder, including `Start Gem Coder.cmd`,
+`Start Gem Coder.sh`,
 `companion.mjs`, `pick-folder.ps1`, and `index.html`. The default browser app
 configuration is:
 
