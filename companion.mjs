@@ -35,6 +35,8 @@ const defaultDataRoot = process.platform === 'win32'
   ? (process.env.LOCALAPPDATA || process.env.APPDATA || appDirectory)
   : (process.env.XDG_DATA_HOME || path.join(process.env.HOME || appDirectory, '.local', 'share'));
 const skillsRoot = path.resolve(option('--skills-dir', path.join(defaultDataRoot, 'GemCoder', 'skills')));
+const workspaceStateFile = path.resolve(option('--state-file', path.join(defaultDataRoot, 'GemCoder', 'workspace.json')));
+let workspaceNotice = null;
 const ignoredDirectories = new Set(['.git', 'node_modules', '.gradle', 'build', 'out', 'dist', '.idea', '.vscode']);
 const maxFileBytes = 300_000;
 const maxResults = 120;
@@ -45,6 +47,18 @@ const appOrigin = 'http://127.0.0.1:' + port;
 const appOrigins = new Set([appOrigin, 'http://localhost:' + port]);
 
 await fs.mkdir(skillsRoot, { recursive: true });
+// Explicit command-line workspaces take precedence and do not replace the saved selection.
+if (serveApp && !workspaceArg) {
+  try {
+    const saved = JSON.parse(await fs.readFile(workspaceStateFile, 'utf8'));
+    await selectWorkspace(saved.path, false);
+  } catch (caught) {
+    // A missing state file is a normal first launch; a missing saved folder is not.
+    if (caught.code !== 'ENOENT' || caught.path !== workspaceStateFile) {
+      workspaceNotice = 'Saved project could not be restored. Connect its folder again.';
+    }
+  }
+}
 
 function within(root, candidate) {
   const relative = path.relative(root, candidate);
@@ -67,12 +81,23 @@ function requestOrigin(request) {
   const origin = request.headers.origin;
   return typeof origin === 'string' && allowedOrigins.test(origin) ? origin : null;
 }
-async function selectWorkspace(directory) {
+async function selectWorkspace(directory, persist = true) {
   if (typeof directory !== 'string' || !directory.trim()) throw new Error('Choose a project folder first.');
   const resolved = await fs.realpath(path.resolve(directory));
   const stat = await fs.stat(resolved);
   if (!stat.isDirectory()) throw new Error('That path is not a folder.');
+  if (persist) {
+    await fs.mkdir(path.dirname(workspaceStateFile), { recursive: true });
+    const temporaryFile = workspaceStateFile + '.' + randomBytes(8).toString('hex') + '.tmp';
+    try {
+      await fs.writeFile(temporaryFile, JSON.stringify({ path: resolved }) + '\n', { mode: 0o600 });
+      await fs.rename(temporaryFile, workspaceStateFile);
+    } finally {
+      await fs.rm(temporaryFile, { force: true });
+    }
+  }
   workspaceRoot = resolved;
+  workspaceNotice = null;
   return { workspace: path.basename(workspaceRoot), path: workspaceRoot };
 }
 function requireWorkspace() {
@@ -374,7 +399,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
       const workspaceTools = workspaceRoot ? ['list_files', 'read_file', 'search_code', 'write_file', 'run_wpilib_build'] : [];
       if (workspaceRoot && wpilibDocsRoot) workspaceTools.push('search_wpilib_docs');
-      json(response, 200, { workspace: workspaceRoot ? path.basename(workspaceRoot) : null, wpilibDocs: Boolean(wpilibDocsRoot), skills: await listSkills(), tools: ['list_skills', 'read_skill', 'read_skill_file', ...workspaceTools] }, origin);
+      json(response, 200, { workspace: workspaceRoot ? path.basename(workspaceRoot) : null, workspaceNotice, wpilibDocs: Boolean(wpilibDocsRoot), skills: await listSkills(), tools: ['list_skills', 'read_skill', 'read_skill_file', ...workspaceTools] }, origin);
       return;
     }
     if (request.method === 'GET' && request.url === '/skills') {

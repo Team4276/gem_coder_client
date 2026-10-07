@@ -105,7 +105,7 @@ test('the chat clearly shows whether a project is connected', async () => {
   const page = await fs.readFile(path.join(repositoryRoot, 'index.html'), 'utf8');
   assert.match(page, /id="projectState"[^>]*>No project selected/);
   assert.match(page, /projectState\.textContent = 'Project: ' \+ workspaceInfo\.workspace/);
-  assert.match(page, /projectState\.textContent = 'No project selected/);
+  assert.match(page, /projectState\.textContent = workspaceInfo\.workspaceNotice \|\| 'No project selected/);
   assert.match(page, /\$\('#projectState'\)\.addEventListener\('click', showWorkspaceConnect\)/);
 });
 
@@ -153,6 +153,81 @@ async function request(url, endpoint, options) {
   return { response, payload };
 }
 
+test('selected projects survive relaunches and unavailable state can be recovered', async (context) => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'gem-coder-workspace-'));
+  const stateFile = path.join(temporaryRoot, 'state', 'workspace.json');
+  const workspace = path.join(temporaryRoot, 'Robot');
+  const other = path.join(temporaryRoot, 'OtherRobot');
+  await fs.mkdir(workspace);
+  await fs.mkdir(other);
+  await fs.writeFile(path.join(workspace, 'robot.txt'), 'Restored project contents');
+  let child;
+  async function stop() {
+    if (child && child.exitCode === null) {
+      const exited = new Promise(resolve => child.once('exit', resolve));
+      child.kill();
+      await exited;
+      child = null;
+    }
+  }
+  context.after(async () => {
+    await stop();
+    await fs.rm(temporaryRoot, { recursive: true, force: true });
+  });
+  async function launch(extra = []) {
+    await stop();
+    const port = await availablePort();
+    const url = 'http://127.0.0.1:' + port;
+    const output = [];
+    child = spawn(process.execPath, [path.join(repositoryRoot, 'companion.mjs'),
+      '--serve-app', '--port', String(port), '--skills-dir', path.join(temporaryRoot, 'skills'),
+      '--state-file', stateFile, ...extra], { cwd: repositoryRoot, windowsHide: true });
+    child.stdout.on('data', chunk => output.push(chunk.toString()));
+    child.stderr.on('data', chunk => output.push(chunk.toString()));
+    await waitForServer(url, child, output);
+    return url;
+  }
+  const connect = (url, directory) => request(url, '/connect', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: directory }),
+  });
+  let url = await launch();
+  let health = (await request(url, '/health')).payload;
+  assert.equal(health.workspace, null);
+  assert.equal(health.workspaceNotice, null);
+  assert.equal((await connect(url, workspace)).payload.result.workspace, 'Robot');
+  assert.equal(JSON.parse(await fs.readFile(stateFile, 'utf8')).path, await fs.realpath(workspace));
+  assert.equal((await connect(url, path.join(workspace, 'robot.txt'))).response.status, 400);
+  url = await launch();
+  assert.equal((await request(url, '/health')).payload.workspace, 'Robot');
+  const read = await request(url, '/tool', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'read_file', input: { path: 'robot.txt' } }),
+  });
+  assert.equal(read.payload.result.content, 'Restored project contents');
+  url = await launch(['--workspace', other]);
+  assert.equal((await request(url, '/health')).payload.workspace, 'OtherRobot');
+  url = await launch();
+  assert.equal((await request(url, '/health')).payload.workspace, 'Robot');
+  await stop();
+  await fs.rename(workspace, workspace + '-moved');
+  url = await launch();
+  health = (await request(url, '/health')).payload;
+  assert.equal(health.workspace, null);
+  assert.match(health.workspaceNotice, /could not be restored/);
+  assert.ok(!health.tools.includes('read_file'));
+  assert.equal((await connect(url, other)).response.status, 200);
+  assert.equal((await request(url, '/health')).payload.workspaceNotice, null);
+  url = await launch();
+  assert.equal((await request(url, '/health')).payload.workspace, 'OtherRobot');
+  await stop();
+  await fs.writeFile(stateFile, '{invalid');
+  url = await launch();
+  health = (await request(url, '/health')).payload;
+  assert.equal(health.workspace, null);
+  assert.match(health.workspaceNotice, /could not be restored/);
+});
+
 test('installs, lists, and reads a local skill', async (context) => {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'gem-coder-skills-'));
   const store = path.join(temporaryRoot, 'store');
@@ -164,7 +239,7 @@ test('installs, lists, and reads a local skill', async (context) => {
   const port = await availablePort();
   const url = 'http://127.0.0.1:' + port;
   const output = [];
-  const child = spawn(process.execPath, [path.join(repositoryRoot, 'companion.mjs'), '--serve-app', '--port', String(port), '--skills-dir', store], { cwd: repositoryRoot, windowsHide: true });
+  const child = spawn(process.execPath, [path.join(repositoryRoot, 'companion.mjs'), '--serve-app', '--port', String(port), '--skills-dir', store, '--state-file', path.join(temporaryRoot, 'workspace.json')], { cwd: repositoryRoot, windowsHide: true });
   child.stdout.on('data', (chunk) => output.push(chunk.toString()));
   child.stderr.on('data', (chunk) => output.push(chunk.toString()));
   context.after(async () => {
@@ -266,7 +341,7 @@ test('keeps file tools inside the workspace and protects existing writes', async
   const port = await availablePort();
   const url = 'http://127.0.0.1:' + port;
   const output = [];
-  const child = spawn(process.execPath, [path.join(repositoryRoot, 'companion.mjs'), '--serve-app', '--workspace', workspace, '--port', String(port), '--skills-dir', store], { cwd: repositoryRoot, windowsHide: true });
+  const child = spawn(process.execPath, [path.join(repositoryRoot, 'companion.mjs'), '--serve-app', '--workspace', workspace, '--port', String(port), '--skills-dir', store, '--state-file', path.join(temporaryRoot, 'workspace.json')], { cwd: repositoryRoot, windowsHide: true });
   child.stdout.on('data', (chunk) => output.push(chunk.toString()));
   child.stderr.on('data', (chunk) => output.push(chunk.toString()));
   context.after(async () => {

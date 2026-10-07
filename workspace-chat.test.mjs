@@ -89,3 +89,13 @@ test('project listing failures stop the request instead of silently answering wi
   await assert.rejects(context.runWorkspaceAgent({ messages: [] }, {}, {}), /Companion unreachable/);
   assert.equal(requests.length, 0);
 });
+
+test('project context instructions explain mismatches and distinguish general coding help', () => {
+  const { context } = client();
+  const messages = context.apiMessages({ messages: [{ role: 'user', content: 'Help with my other project' }] });
+  assert.match(messages[0].content, /briefly name the connected project and explain the mismatch/);
+  assert.match(messages[0].content, /connect the intended project/);
+  assert.match(messages[0].content, /general coding questions, answer generally/);
+  assert.match(messages[0].content, /Do not infer a mismatch from an unfamiliar subsystem name or a single failed search/);
+  assert.match(messages[0].content, /Never apply changes intended for another project/);
+});

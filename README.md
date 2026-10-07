@@ -26,6 +26,11 @@ needed for the normal student workflow.
 3. Pick the folder where the project is saved, then select **Connect project**.
 
 Gem Coder can inspect, search, edit, and build only inside the selected folder.
+The selected project is remembered on this computer and restored on the next
+launch. If the folder has moved or is unavailable, reconnect it using **Connect
+a project**. For questions about another project, the assistant explains which
+project is connected and asks you to connect the intended folder. General coding
+questions can still receive general answers.
 It keeps file and search activity out of the conversation. Before it edits a
 file or runs a build, it asks the student to approve or reject that action.
 It answers only coding-related questions and briefly redirects unrelated
