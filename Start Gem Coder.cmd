@@ -26,6 +26,10 @@ if %NODE_MAJOR% LSS 18 (
 
 echo Starting Gem Coder. Keep this window open while you use it.
 node "%~dp0companion.mjs" --serve-app --open
-echo.
-echo Gem Coder stopped.
-pause
+if errorlevel 1 (
+  echo.
+  echo Gem Coder could not start or stopped with an error. See the message above.
+  pause
+  exit /b 1
+)
+exit /b 0

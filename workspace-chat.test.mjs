@@ -108,9 +108,9 @@ test('tool exhaustion requests a final summary with the collected results and no
   context.fetch = async (url, options) => {
     const request = JSON.parse(options.body);
     requests.push(request);
-    const message = request.tool_choice === 'none'
+    const message = !request.tools
       ? { content: 'The inspected target is 42; more investigation is pending.' }
-      : { tool_calls: [{ id: String(requests.length), function: { name: 'read_file', arguments: '{"path":"src/Elevator.java"}' } }] };
+      : { tool_calls: [{ id: String(requests.length), function: { name: 'read_file', arguments: JSON.stringify({ path: 'src/File' + requests.length + '.java' }) } }] };
     return { ok: true, json: async () => ({ choices: [{ message }] }) };
   };
   const answer = {};
@@ -118,10 +118,17 @@ test('tool exhaustion requests a final summary with the collected results and no
   assert.equal(executions, 10);
   assert.equal(requests.length, 11);
   const final = requests.at(-1);
-  assert.equal(final.tool_choice, 'none');
-  assert.equal(final.messages.filter(message => message.role === 'tool').length, 10);
+  for (const request of requests) {
+    assert.equal(request.messages[0].role, 'system');
+    assert.equal(request.messages.slice(1).some(message => message.role === 'system'), false);
+  }
+  assert.match(final.messages[0].content, /tool budget is exhausted/);
+  assert.equal(final.tool_choice, undefined);
+  assert.equal(final.tools, undefined);
+  assert.equal(final.messages.filter(message => message.role === 'tool').length, 0);
+  assert.match(final.messages.at(-1).content, /Inspected elevator target: 42/);
   assert.match(answer.content, /target is 42/);
-  assert.match(answer.content, /inspection limit/);
+  assert.doesNotMatch(answer.content, /inspection limit/);
   assert.doesNotMatch(answer.content, /Connection error|Reconnecting/);
 });
 
@@ -135,9 +142,29 @@ test('a model that keeps calling tools after exhaustion cannot execute additiona
   } }] }) });
   const answer = {};
   await context.runWorkspaceAgent({ messages: [] }, answer, {});
-  assert.equal(executions, 10);
-  assert.match(answer.content, /inspection limit/);
+  assert.equal(executions, 1);
+  assert.match(answer.content, /model kept requesting tools/);
   assert.doesNotMatch(answer.content, /Everything is complete/);
+});
+
+test('repeated reads finish early with a plain answer', async () => {
+  const { context } = client();
+  let executions = 0;
+  let rounds = 0;
+  context.fulfillTool = async () => { executions++; return { content: 'Current file contents' }; };
+  context.fetch = async (url, options) => {
+    const body = JSON.parse(options.body);
+    rounds++;
+    const message = !body.tools
+      ? { content: 'Here is the answer from the inspected file.' }
+      : { tool_calls: [{ id: String(rounds), function: { name: 'read_file', arguments: '{}' } }] };
+    return { ok: true, json: async () => ({ choices: [{ message }] }) };
+  };
+  const answer = {};
+  await context.runWorkspaceAgent({ messages: [] }, answer, {});
+  assert.equal(rounds, 4);
+  assert.equal(executions, 1);
+  assert.equal(answer.content, 'Here is the answer from the inspected file.');
 });
 
 test('persistent read failures finish honestly without requesting an ungrounded summary', async () => {
@@ -176,4 +203,35 @@ test('only connection failures trigger reconnect and the server address action',
     assert.match(chat.messages.at(-1).content, shouldReconnect ? /Connection error/ : /Could not complete this response/);
     assert.equal(context.isSending, false);
   }
+});
+
+test('server rejection preserves its explanation and status without retrying', async () => {
+  const { context } = client();
+  let calls = 0;
+  context.fetch = async () => {
+    calls++;
+    return { ok: false, status: 400, text: async () => JSON.stringify({ error: { message: 'Tool choice is not supported by this model' } }) };
+  };
+  await assert.rejects(context.runWorkspaceAgent({ messages: [] }, {}, {}), error => {
+    assert.equal(error.status, 400);
+    assert.match(error.message, /Tool choice is not supported/);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+
+test('model error details support plain text, empty bodies, and context limit guidance', async () => {
+  const { context } = client();
+  for (const [body, expected] of [
+    ['Invalid message format', /Invalid message format/],
+    ['', /no error details provided/],
+    [JSON.stringify({ message: 'Maximum context length exceeded' }), /Start a new chat/],
+    [JSON.stringify({ detail: 'Invalid tool arguments' }), /Invalid tool arguments/],
+  ]) {
+    const error = await context.modelResponseError({ status: 400, text: async () => body });
+    assert.equal(error.status, 400);
+    assert.match(error.message, expected);
+  }
+  const error = await context.modelResponseError({ status: 400, text: async () => 'x'.repeat(5000) });
+  assert.ok(error.message.length < 1300);
 });

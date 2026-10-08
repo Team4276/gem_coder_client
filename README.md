@@ -19,6 +19,10 @@ For the DGX Spark administrator guide, see [DGX Spark setup](DGX_SPARK_SETUP.md)
 No terminal commands, server address, workspace URL, or workspace token are
 needed for the normal student workflow.
 
+Launching Gem Coder again opens the already running app. Keep the original
+launch window open; the extra launch exits automatically. If another application
+is using its port, Gem Coder shows a message explaining how to resolve the conflict.
+
 ### Work with a project
 
 1. Select **Connect a project** in the sidebar.

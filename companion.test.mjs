@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import net from 'node:net';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -152,6 +153,59 @@ async function request(url, endpoint, options) {
   const payload = await response.json();
   return { response, payload };
 }
+
+test('a duplicate launch reuses Gem Coder and reports unrelated port conflicts cleanly', { timeout: 15000 }, async (context) => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'gem-coder-launch-'));
+  const children = [];
+  const foreign = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ workspace: 'Unrelated service', servesApp: true }));
+  });
+  context.after(async () => {
+    for (const child of children) {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = new Promise(resolve => child.once('exit', resolve));
+        child.kill();
+        await exited;
+      }
+    }
+    if (foreign.listening) await new Promise(resolve => foreign.close(resolve));
+    await fs.rm(temporaryRoot, { recursive: true, force: true });
+  });
+  function launch(port, extra = []) {
+    const output = [];
+    const child = spawn(process.execPath, [path.join(repositoryRoot, 'companion.mjs'),
+      '--serve-app', '--port', String(port), '--skills-dir', path.join(temporaryRoot, 'skills'),
+      '--state-file', path.join(temporaryRoot, 'workspace.json'), ...extra], { windowsHide: true });
+    children.push(child);
+    child.stdout.on('data', chunk => output.push(chunk.toString()));
+    child.stderr.on('data', chunk => output.push(chunk.toString()));
+    const finished = new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', code => resolve({ code, output: output.join('') }));
+    });
+    return { child, output, finished };
+  }
+  const port = await availablePort();
+  const url = 'http://127.0.0.1:' + port;
+  const first = launch(port);
+  await waitForServer(url, first.child, first.output);
+  const second = await launch(port).finished;
+  assert.equal(second.code, 0);
+  assert.match(second.output, /Gem Coder is already running/);
+  assert.doesNotMatch(second.output, /Unhandled|EADDRINUSE/);
+  assert.equal(first.child.exitCode, null);
+  const health = (await request(url, '/health')).payload;
+  assert.equal(health.app, 'gem-coder');
+  assert.equal(health.servesApp, true);
+
+  await new Promise(resolve => foreign.listen(0, '127.0.0.1', resolve));
+  const conflict = await launch(foreign.address().port).finished;
+  assert.equal(conflict.code, 1);
+  assert.match(conflict.output, /already in use/);
+  assert.match(conflict.output, /Could not verify/);
+  assert.doesNotMatch(conflict.output, /Unhandled|EADDRINUSE|Gem Coder is already running/);
+});
 
 test('selected projects survive relaunches and unavailable state can be recovered', async (context) => {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'gem-coder-workspace-'));

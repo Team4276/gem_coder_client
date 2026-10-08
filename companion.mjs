@@ -399,7 +399,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
       const workspaceTools = workspaceRoot ? ['list_files', 'read_file', 'search_code', 'write_file', 'run_wpilib_build'] : [];
       if (workspaceRoot && wpilibDocsRoot) workspaceTools.push('search_wpilib_docs');
-      json(response, 200, { workspace: workspaceRoot ? path.basename(workspaceRoot) : null, workspaceNotice, wpilibDocs: Boolean(wpilibDocsRoot), skills: await listSkills(), tools: ['list_skills', 'read_skill', 'read_skill_file', ...workspaceTools] }, origin);
+      json(response, 200, { workspace: workspaceRoot ? path.basename(workspaceRoot) : null, workspaceNotice, app: 'gem-coder', servesApp: serveApp, wpilibDocs: Boolean(wpilibDocsRoot), skills: await listSkills(), tools: ['list_skills', 'read_skill', 'read_skill_file', ...workspaceTools] }, origin);
       return;
     }
     if (request.method === 'GET' && request.url === '/skills') {
@@ -442,18 +442,43 @@ const server = createServer(async (request, response) => {
     error(response, 404, 'Not found.', origin);
   } catch (caught) { error(response, 400, caught instanceof Error ? caught.message : 'Request failed.', origin); }
 });
+server.on('error', async (caught) => {
+  if (caught.code === 'EADDRINUSE') {
+    if (serveApp) {
+      try {
+        const response = await fetch(appOrigin + '/health', { signal: AbortSignal.timeout(2000), redirect: 'error' });
+        const health = response.ok ? await response.json() : null;
+        if (health && health.app === 'gem-coder' && health.servesApp === true) {
+          console.log('Gem Coder is already running at ' + appOrigin + '.');
+          console.log('Keep its original window open. You can close this launch window.');
+          if (workspaceArg || docsArg) console.log('The running instance keeps its current project and documentation settings.');
+          if (openBrowser) launchBrowser();
+          return;
+        }
+      } catch { /* The port is occupied, but no compatible app was verified. */ }
+    }
+    console.error('Port ' + port + ' is already in use. Could not verify an existing Gem Coder app.');
+    console.error('Close the application using that port and try again, or start Gem Coder with --port ' + (port + 1) + '.');
+  } else {
+    console.error('Could not start Gem Coder: ' + caught.message);
+  }
+  process.exitCode = 1;
+});
 server.listen(port, '127.0.0.1', () => {
   console.log('\nGem Coder is running at ' + appOrigin);
   if (workspaceRoot) console.log('Workspace: ' + workspaceRoot);
   console.log('Skills:    ' + skillsRoot);
   if (!serveApp) console.log('Token:     ' + token);
   if (wpilibDocsRoot) console.log('WPILib docs: ' + wpilibDocsRoot);
-  if (openBrowser && process.platform === 'win32') spawn('cmd.exe', ['/c', 'start', '', appOrigin], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-  if (openBrowser && process.platform !== 'win32') {
-    const browser = spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [appOrigin], { detached: true, stdio: 'ignore' });
-    const manualOpen = () => console.log('Open ' + appOrigin + ' in your browser.');
-    browser.on('error', manualOpen);
-    browser.on('exit', code => { if (code !== 0) manualOpen(); });
-    browser.unref();
-  }
+  if (openBrowser) launchBrowser();
 });
+
+function launchBrowser() {
+  const command = process.platform === 'win32' ? 'cmd.exe' : (process.platform === 'darwin' ? 'open' : 'xdg-open');
+  const browserArgs = process.platform === 'win32' ? ['/c', 'start', '', appOrigin] : [appOrigin];
+  const browser = spawn(command, browserArgs, { detached: true, stdio: 'ignore', windowsHide: true });
+  const manualOpen = () => console.log('Open ' + appOrigin + ' in your browser.');
+  browser.on('error', manualOpen);
+  browser.on('exit', code => { if (code !== 0) manualOpen(); });
+  browser.unref();
+}
